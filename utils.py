@@ -6,6 +6,7 @@ from typing import Tuple, Dict
 from scipy.optimize import curve_fit
 from sklearn.metrics import r2_score
 from statsmodels.tsa.stattools import adfuller
+from torch.distributions import Uniform
 
 # === THE PFN SAMPLER
 class PFNNewtonSampler:
@@ -13,29 +14,33 @@ class PFNNewtonSampler:
         self.num_timesteps = num_timesteps
         self.t_min = t_min
         self.t_max = t_max
+        self.prior = Uniform(low=torch.tensor([290.0, 5.0, 0.005, self.t_min, 0.1]), high=torch.tensor([310.0, 50.0, 0.05, 30.0, 2.5]))
 
-    def sample_priors(self, batch_size: int) -> Dict[str, torch.Tensor]:
+    def sample_priors(self, batch_size: int, seq_len: int = 1) -> Dict[str, torch.Tensor]:
         """Samples physical parameters from prior distributions."""
-        T_env = torch.empty(batch_size).uniform_(290.0, 310.0)   
-        T_0 = torch.empty(batch_size).uniform_(5.0, 50.0)        
-        k = torch.empty(batch_size).uniform_(0.005, 0.05)        
-        t_0 = torch.empty(batch_size).uniform_(self.t_min, 30.0) 
-        error_variance = torch.empty(batch_size).uniform_(0.1, 2.5) 
+        samples = self.prior.sample((batch_size, seq_len))
+        T_env = samples[:, :, 0]
+        T_0 = samples[:, :, 1]
+        k = samples[:, :, 2]
+        t_0 = samples[:, :, 3]
+        error_variance = samples[:, :, 4]
 
         return {
             "T_env": T_env, "T_0": T_0, "k": k, "t_0": t_0, "error_variance": error_variance
         }
 
-    def generate_batch(self, batch_size: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def generate_batch(self, batch_size: int, seq_len: int = 1, num_features: int = None) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generates a batch of time series data based on the regression model with added Gaussian noise."""
-        params = self.sample_priors(batch_size)
-        t_grid = torch.linspace(self.t_min, self.t_max, self.num_timesteps).unsqueeze(0).repeat(batch_size, 1)
+        if num_features is None:
+            num_features = self.num_timesteps
+        params = self.sample_priors(batch_size, seq_len)
+        t_grid = torch.linspace(self.t_min, self.t_max, num_features).unsqueeze(0).repeat(batch_size, seq_len, 1)  # Shape: (batch_size, seq_len, num_timesteps)
         
-        T_env_exp = params["T_env"].unsqueeze(1)
-        T_0_exp = params["T_0"].unsqueeze(1)
-        k_exp = params["k"].unsqueeze(1)
-        t_0_exp = params["t_0"].unsqueeze(1)
-        var_exp = params["error_variance"].unsqueeze(1)
+        T_env_exp = params["T_env"].unsqueeze(-1)
+        T_0_exp = params["T_0"].unsqueeze(-1)
+        k_exp = params["k"].unsqueeze(-1)
+        t_0_exp = params["t_0"].unsqueeze(-1)
+        var_exp = params["error_variance"].unsqueeze(-1)
         
         # The actual physical model with a Heaviside step at the time of discharge
         mask = (t_grid >= t_0_exp).float()
@@ -48,6 +53,6 @@ class PFNNewtonSampler:
         
         targets = torch.stack([
             params["T_env"], params["T_0"], params["k"], params["t_0"], params["error_variance"]
-        ], dim=1)
+        ], dim=-1)
         
         return t_grid, observed_T, targets
