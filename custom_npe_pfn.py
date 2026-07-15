@@ -13,7 +13,7 @@ from PFNs.pfns.model.transformer import TableTransformer
 log = logging.getLogger(__name__)
 
 
-class NPE_PFN_Core:
+class Custom_NPE_PFN_Core:
     """TabPFN-based simulation-based inference that follows SBI-like interface.
 
     This class provides similar functionality to SBI's NPE (Neural Posterior Estimation)
@@ -527,7 +527,7 @@ class DensityRatioWrapper:
 
 
 # NOTE: Can never support batched sampling, as context depends on x
-class NPE_PFN(NPE_PFN_Core):
+class Custom_NPE_PFN(Custom_NPE_PFN_Core):
     def __init__(
         self,
         model: TableTransformer,
